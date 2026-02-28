@@ -19,9 +19,9 @@ app = Flask(
 CORS(app)
 
 # --------------------------------------------------
-# DB Connection — Supabase
+# DB Connection — Supabase Transaction Pooler (IPv4)
 # --------------------------------------------------
-DB_URI = "postgresql://postgres:Sahilmh9539292202@db.ifuouugzeqbfdpzchxtw.supabase.co:5432/postgres"
+DB_URI = "postgresql://postgres.ifuouugzeqbfdpzchxtw:Sahilmh9539292202@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require"
 
 def get_conn():
     return psycopg2.connect(DB_URI)
@@ -72,6 +72,7 @@ def mood():
             SELECT window_start, city, mood_score
             FROM mood_data ORDER BY window_start DESC LIMIT 300
         """, conn)
+
         try:
             traffic_df  = pd.read_sql("""
                 SELECT DISTINCT ON (city) city, traffic_index
@@ -80,6 +81,7 @@ def mood():
             traffic_map = dict(zip(traffic_df["city"], traffic_df["traffic_index"]))
         except Exception:
             traffic_map = {}
+
         conn.close()
 
         if mood_df.empty:
@@ -95,13 +97,17 @@ def mood():
             score  = float(row["mood_score"])
             stress = compute_stress(score, traffic_map.get(row["city"]))
             status = "positive" if score > 0.2 else ("negative" if score < -0.2 else "neutral")
+
             cities.append({
-                "city": row["city"], "mood_score": round(score, 3),
-                "status": status, "stress_score": stress,
+                "city": row["city"],
+                "mood_score": round(score, 3),
+                "status": status,
+                "stress_score": stress,
                 "updated": row["window_start"].isoformat()
             })
 
         return jsonify({"cities": cities, "updated": datetime.utcnow().isoformat()})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -134,7 +140,9 @@ def trend():
                 "labels": [t.strftime("%H:%M:%S") for t in tail["window_start"]],
                 "values": [round(float(v), 3) for v in tail["mood_score"]]
             }
+
         return jsonify({"series": series})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -163,14 +171,20 @@ def forecast():
             scores    = list(group.sort_values("window_start")["mood_score"])
             current   = compute_stress(scores[-1]) if scores else None
             predicted = forecast_stress(scores)
+
             if current is not None and predicted is not None:
                 delta     = predicted - current
                 direction = "increase" if delta > 0.05 else ("decrease" if delta < -0.05 else "stable")
+
                 results.append({
-                    "city": city, "current_stress": current,
-                    "predicted_stress": predicted, "direction": direction
+                    "city": city,
+                    "current_stress": current,
+                    "predicted_stress": predicted,
+                    "direction": direction
                 })
+
         return jsonify({"forecasts": results})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -215,5 +229,5 @@ if __name__ == "__main__":
     print(f"BASE_DIR:  {BASE_DIR}")
     print(f"Templates: {os.path.join(BASE_DIR, 'templates')}")
     print(f"Static:    {os.path.join(BASE_DIR, 'static')}")
-    print(f"Database:  Supabase ({DB_URI.split('@')[1]})")
+    print(f"Database:  Supabase Pooler ({DB_URI.split('@')[1]})")
     app.run(port=5050, debug=True)
